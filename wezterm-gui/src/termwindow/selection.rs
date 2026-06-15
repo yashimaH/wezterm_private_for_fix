@@ -1,6 +1,6 @@
 use crate::selection::{Selection, SelectionCoordinate, SelectionMode, SelectionRange, SelectionX};
 use ::window::WindowOps;
-use mux::pane::{Pane, PaneId};
+use mux::pane::{Pane, PaneId, WithPaneLines};
 use std::cell::RefMut;
 use std::sync::Arc;
 use termwiz::surface::Line;
@@ -109,6 +109,85 @@ impl super::TermWindow {
         s
     }
 
+    /// When the mouse falls within the interior of a multi-cell grapheme (eg:
+    /// a CJK double-width character), the reported column can land on the
+    /// trailing padding cell that belongs to that grapheme. Building a
+    /// selection from such a column would visually highlight only a portion of
+    /// the glyph (the reported "selected up to the middle of the character"
+    /// problem). This snaps such a column to the nearest grapheme boundary,
+    /// using the sub-cell pixel offset to decide whether the pointer is past
+    /// the visual center of the glyph.
+    fn snap_selection_x_to_grapheme(
+        &self,
+        pane: &Arc<dyn Pane>,
+        x: usize,
+        x_pixel_offset: isize,
+        stable_row: StableRowIndex,
+    ) -> usize {
+        if x == 0 {
+            return x;
+        }
+
+        // Walk the cells of the row from the start, advancing by each grapheme's
+        // cell width. This visits only grapheme-start cells (the trailing
+        // padding cells of a wide grapheme are skipped), so we can tell whether
+        // `x` sits on a grapheme boundary or in the interior of a wide grapheme,
+        // and recover that grapheme's span `start..start + width`.
+        struct ProbeGrapheme {
+            x: usize,
+            stable_row: StableRowIndex,
+            /// `Some((start, width))` when `x` falls in the interior of a
+            /// grapheme that occupies `start..start + width`.
+            interior: Option<(usize, usize)>,
+        }
+
+        impl WithPaneLines for ProbeGrapheme {
+            fn with_lines_mut(&mut self, stable_top: StableRowIndex, lines: &mut [&mut Line]) {
+                if stable_top != self.stable_row {
+                    return;
+                }
+                let line = match lines.get(0) {
+                    Some(line) => line,
+                    None => return,
+                };
+                let mut col = 0;
+                while col < self.x {
+                    let width = line.get_cell(col).map(|cell| cell.width()).unwrap_or(1).max(1);
+                    if self.x < col + width {
+                        // `x` lands inside this grapheme rather than on a boundary.
+                        self.interior = Some((col, width));
+                        return;
+                    }
+                    col += width;
+                }
+            }
+        }
+
+        let mut probe = ProbeGrapheme {
+            x,
+            stable_row,
+            interior: None,
+        };
+        pane.with_lines_mut(stable_row..stable_row + 1, &mut probe);
+
+        // `x` indexes a trailing padding cell in the interior of a wide
+        // grapheme; snap it to one of the grapheme's boundaries. Use the
+        // sub-cell pixel offset to decide whether the pointer is past the
+        // visual center of the glyph: if so, include the whole grapheme,
+        // otherwise exclude it.
+        if let Some((start, width)) = probe.interior {
+            if x_pixel_offset * 2 >= self.render_metrics.cell_size.width {
+                // Pointer is on the left half of the cell under it: exclude.
+                start
+            } else {
+                // Pointer is past the visual center: include the whole glyph.
+                start + width
+            }
+        } else {
+            x
+        }
+    }
+
     pub fn clear_selection(&mut self, pane: &Arc<dyn Pane>) {
         let mut selection = self.selection(pane.pane_id());
         selection.clear();
@@ -122,7 +201,7 @@ impl super::TermWindow {
             Some(coords) => coords,
             None => return,
         };
-        let x = position.column;
+        let x = self.snap_selection_x_to_grapheme(pane, position.column, position.x_pixel_offset, y);
         match mode {
             SelectionMode::Cell | SelectionMode::Block => {
                 // Origin is the cell in which the selection action started. E.g. the cell
@@ -241,10 +320,11 @@ impl super::TermWindow {
     }
 
     pub fn select_text_at_mouse_cursor(&mut self, mode: SelectionMode, pane: &Arc<dyn Pane>) {
-        let (x, y) = match self.pane_state(pane.pane_id()).mouse_terminal_coords {
-            Some(coords) => (coords.0.column, coords.1),
+        let (position, y) = match self.pane_state(pane.pane_id()).mouse_terminal_coords {
+            Some(coords) => coords,
             None => return,
         };
+        let x = self.snap_selection_x_to_grapheme(pane, position.column, position.x_pixel_offset, y);
         match mode {
             SelectionMode::Line => {
                 let start = SelectionCoordinate::x_y(x, y);
