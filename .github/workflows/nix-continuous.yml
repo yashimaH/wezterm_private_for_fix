@@ -1,12 +1,12 @@
 name: Nix / Continuous Build
 
 on:
-  schedule:
-    - cron: "10 3 * * *" # Every night at 3:10am
+  #schedule:
+  #  - cron: "10 3 * * *" # Every night at 3:10am
   workflow_dispatch:
   push:
     branches:
-      - main
+      - workflow_disabled
     paths:
       - '**/*.rs'
       - '.github/workflows/nix_continuous.yml'
