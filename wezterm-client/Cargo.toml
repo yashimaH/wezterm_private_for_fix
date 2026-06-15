@@ -22,7 +22,6 @@ log.workspace = true
 lru.workspace = true
 metrics.workspace = true
 mux.workspace = true
-openssl.workspace = true
 parking_lot.workspace = true
 portable-pty = { workspace=true, features = ["serde_support"]}
 promise.workspace = true
@@ -38,6 +37,9 @@ wezterm-dynamic.workspace = true
 wezterm-ssh.workspace = true
 wezterm-term = { workspace=true, features=["use_serde"] }
 wezterm-uds.workspace = true
+
+[target.'cfg(not(windows))'.dependencies]
+openssl.workspace = true
 
 [target."cfg(windows)".dependencies]
 winapi = { workspace=true, features = [

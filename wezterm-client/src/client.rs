@@ -13,7 +13,9 @@ use mux::domain::DomainId;
 use mux::pane::PaneId;
 use mux::ssh::ssh_connect_with_ui;
 use mux::Mux;
+#[cfg(not(windows))]
 use openssl::ssl::{SslConnector, SslFiletype, SslMethod};
+#[cfg(not(windows))]
 use openssl::x509::X509;
 use portable_pty::Child;
 use smol::channel::{bounded, unbounded, Receiver, Sender};
@@ -807,6 +809,17 @@ impl Reconnectable {
         Ok(())
     }
 
+    #[cfg(windows)]
+    pub fn tls_connect(
+        &mut self,
+        _tls_client: TlsDomainClient,
+        _initial: bool,
+        _ui: &mut ConnectionUI,
+    ) -> anyhow::Result<()> {
+        anyhow::bail!("TLS domain connections are not supported on Windows in this build")
+    }
+
+    #[cfg(not(windows))]
     pub fn tls_connect(
         &mut self,
         tls_client: TlsDomainClient,
@@ -940,6 +953,7 @@ impl Reconnectable {
         Ok(())
     }
 
+    #[cfg(not(windows))]
     fn try_connect(
         &mut self,
         tls_client: &TlsDomainClient,
