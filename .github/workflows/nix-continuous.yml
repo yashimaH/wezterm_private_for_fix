@@ -6,16 +6,22 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - workflow_disabled
+      - dogfood
     paths:
       - '**/*.rs'
-      - '.github/workflows/nix_continuous.yml'
+      - '**/Cargo.lock'
+      - '**/Cargo.toml'
+      - '.github/workflows/nix-continuous.yml'
       - 'nix/**'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: github.repository == 'wezterm/wezterm'
+    if: github.repository == 'yashimaH/wezterm_private_for_fix'
+    env:
+      # `secrets` is only available in a job-level `env`, not in any `if`.
+      # Expose it as a plain env var so the steps below can gate on it.
+      HAS_CACHIX: ${{ secrets.CACHIX_AUTH_TOKEN != '' && vars.CACHIX_CACHE_NAME != '' }}
     steps:
       - uses: actions/checkout@v6
 
@@ -33,10 +39,16 @@ jobs:
           flake-lock-path: ./nix/flake.lock
           ignore-missing-flake-lock: false
 
+      - name: Warn when Cachix is not configured
+        if: ${{ env.HAS_CACHIX != 'true' }}
+        run: |
+          echo "::warning title=Cachix disabled::Set the CACHIX_CACHE_NAME repository variable and the CACHIX_AUTH_TOKEN repository secret to push build results to Cachix."
+
       - name: Setup Cachix
+        if: ${{ env.HAS_CACHIX == 'true' }}
         uses: cachix/cachix-action@v16
         with:
-          name: wezterm
+          name: ${{ vars.CACHIX_CACHE_NAME }}
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
 
       - name: Build default package
@@ -44,8 +56,8 @@ jobs:
           nix build ./nix --json > result.json
 
       - name: Push to Cachix
-        if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+        if: ${{ env.HAS_CACHIX == 'true' }}
         run: |
           cat result.json \
           | jq -r '.[].outputs | to_entries[].value' \
-          | cachix push wezterm
+          | cachix push "${{ vars.CACHIX_CACHE_NAME }}"
