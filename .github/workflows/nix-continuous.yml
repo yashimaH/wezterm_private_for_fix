@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - workflow_disabled
+      - dogfood
     paths:
       - '**/*.rs'
       - '.github/workflows/nix_continuous.yml'

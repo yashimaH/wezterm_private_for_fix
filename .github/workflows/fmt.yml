@@ -3,13 +3,13 @@ name: fmt
 on:
   pull_request:
     branches:
-      - workflow_disabled
+      - dogfood
     paths:
       - "**/*.rs"
       - ".github/workflows/fmt.yml"
   push:
     branches:
-      - workflow_disabled
+      - dogfood
     paths:
       - "**/*.rs"
       - ".github/workflows/fmt.yml"
