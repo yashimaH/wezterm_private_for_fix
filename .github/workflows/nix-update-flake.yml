@@ -1,9 +1,9 @@
 name: Nix / Update flake.lock
 on:
   workflow_dispatch:
-  schedule:
+  #schedule:
     # once a month
-    - cron: '0 0 1 * *'
+    #- cron: '0 0 1 * *'
 
 jobs:
   lockfile:
