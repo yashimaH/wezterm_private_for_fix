@@ -5,7 +5,7 @@ on:
   #  - cron: "10 3 * * *"
   push:
     branches:
-      - workflow_disabled
+      - dogfood
     paths:
       - "**/*.rs"
       - "**/Cargo.lock"
@@ -97,7 +97,7 @@ jobs:
   upload:
     runs-on: ubuntu-latest
     needs: build
-    if: github.repository == 'wezterm/wezterm'
+    if: github.repository == 'yashimaH/wezterm_private_for_fix'
     permissions:
       contents: write
       pages: write
