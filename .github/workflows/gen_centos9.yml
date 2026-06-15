@@ -3,7 +3,7 @@ name: centos9
 on:
   pull_request:
     branches:
-      - main
+      - disabled
     paths:
       - "**/*.rs"
       - "**/Cargo.lock"

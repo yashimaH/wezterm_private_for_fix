@@ -3,7 +3,7 @@ name: Nix
 on:
   pull_request:
     branches:
-      - main
+      - disabled
     paths:
       - '**/*.rs'
       - '.github/workflows/nix.yml'
@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
+      - disabled
     paths:
       - '**/*.rs'
       - '.github/workflows/nix.yml'

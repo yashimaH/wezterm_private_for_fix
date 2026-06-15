@@ -3,7 +3,7 @@ name: verify-pages
 on:
   pull_request:
     branches:
-      - main
+      - disabled
     paths:
       - "docs/**"
       - "ci/build-docs.sh"

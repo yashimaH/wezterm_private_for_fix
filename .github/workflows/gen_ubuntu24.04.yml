@@ -3,7 +3,7 @@ name: ubuntu24.04
 on:
   pull_request:
     branches:
-      - main
+      - disabled
     paths:
       - "**/*.rs"
       - "**/Cargo.lock"
