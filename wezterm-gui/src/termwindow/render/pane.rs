@@ -2,8 +2,8 @@ use crate::quad::{HeapQuadAllocator, QuadTrait, TripleLayerQuadAllocator};
 use crate::selection::SelectionRange;
 use crate::termwindow::box_model::*;
 use crate::termwindow::render::{
-    same_hyperlink, CursorProperties, LineQuadCacheKey, LineQuadCacheValue, LineToEleShapeCacheKey,
-    RenderScreenLineParams,
+    composition_for_row, same_hyperlink, CursorProperties, LineQuadCacheKey, LineQuadCacheValue,
+    LineToEleShapeCacheKey, RenderScreenLineParams,
 };
 use crate::termwindow::{ScrollHit, UIItem, UIItemType};
 use ::window::bitmaps::TextureRect;
@@ -381,7 +381,7 @@ impl crate::TermWindow {
                     // Constrain to the pane width!
                     let selrange = selrange.start..selrange.end.min(self.dims.cols);
 
-                    let (cursor, composing, password_input) = if self.cursor.y == stable_row {
+                    let (cursor, password_input) = if self.cursor.y == stable_row {
                         (
                             Some(CursorProperties {
                                 position: StableCursorPosition {
@@ -396,12 +396,6 @@ impl crate::TermWindow {
                                 cursor_border_color: self.cursor_border_color,
                                 cursor_is_default_color: self.cursor_is_default_color,
                             }),
-                            match (self.pos.is_active, &self.term_window.dead_key_status) {
-                                (true, DeadKeyStatus::Composing(composing)) => {
-                                    Some(composing.to_string())
-                                }
-                                _ => None,
-                            },
                             if self.term_window.config.detect_password_input {
                                 match self.pos.pane.get_metadata() {
                                     Value::Object(obj) => {
@@ -418,7 +412,22 @@ impl crate::TermWindow {
                             },
                         )
                     } else {
-                        (None, None, false)
+                        (None, false)
+                    };
+
+                    // The composition text is wrapped at the pane width, so it
+                    // may overlap not only the cursor row but also the rows
+                    // below it.
+                    let composing = match (self.pos.is_active, &self.term_window.dead_key_status) {
+                        (true, DeadKeyStatus::Composing(composing)) => composition_for_row(
+                            composing,
+                            self.cursor.x,
+                            self.cursor.y,
+                            stable_row,
+                            self.dims.cols,
+                        )
+                        .map(|(_start_col, text)| text),
+                        _ => None,
                     };
 
                     let shape_hash = self.term_window.shape_hash_for_line(line);
@@ -473,11 +482,17 @@ impl crate::TermWindow {
                     let shape_key = LineToEleShapeCacheKey {
                         shape_hash,
                         shape_generation: quad_key.shape_generation,
-                        composing: if self.cursor.y == stable_row && self.pos.is_active {
+                        composing: if self.pos.is_active {
                             if let DeadKeyStatus::Composing(composing) =
                                 &self.term_window.dead_key_status
                             {
-                                Some((self.cursor.x, composing.to_string()))
+                                composition_for_row(
+                                    composing,
+                                    self.cursor.x,
+                                    self.cursor.y,
+                                    stable_row,
+                                    self.dims.cols,
+                                )
                             } else {
                                 None
                             }

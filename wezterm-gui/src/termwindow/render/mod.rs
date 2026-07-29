@@ -17,6 +17,7 @@ use config::{
     VerticalWindowContentAlignment, VisualBellTarget,
 };
 use euclid::num::Zero;
+use finl_unicode::grapheme_clusters::Graphemes;
 use mux::pane::{Pane, PaneId};
 use mux::renderable::{RenderableDimensions, StableCursorPosition};
 use ordered_float::NotNan;
@@ -24,6 +25,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Instant;
+use termwiz::cell::unicode_column_width;
 use termwiz::cellcluster::CellCluster;
 use termwiz::hyperlink::Hyperlink;
 use termwiz::surface::{CursorShape, CursorVisibility, SequenceNo};
@@ -58,7 +60,8 @@ pub struct LineQuadCacheKey {
     pub config_generation: usize,
     pub shape_generation: usize,
     pub quad_generation: usize,
-    /// Only set if cursor.y == stable_row
+    /// Only set when the text being composed overlaps this row;
+    /// holds the portion of it that lands on this row.
     pub composing: Option<String>,
     pub selection: Range<usize>,
     pub shape_hash: [u8; 16],
@@ -97,6 +100,137 @@ pub struct LineToEleShapeCacheKey {
     pub shape_hash: [u8; 16],
     pub composing: Option<(usize, String)>,
     pub shape_generation: usize,
+}
+
+/// Determine which portion of the text being composed via IME/dead keys
+/// should be displayed on the given row.
+/// The composition starts at the cursor position and is wrapped at the
+/// right edge of the pane onto the subsequent rows rather than being
+/// allowed to overflow the pane.
+/// Returns the starting cell index of the segment together with the
+/// segment text, or None if nothing from the composition lands on `row`.
+pub fn composition_for_row(
+    composing: &str,
+    cursor_x: usize,
+    cursor_y: StableRowIndex,
+    row: StableRowIndex,
+    cols: usize,
+) -> Option<(usize, String)> {
+    if row < cursor_y || cols == 0 {
+        return None;
+    }
+    let mut cur_row = cursor_y;
+    let mut col = cursor_x.min(cols);
+    let mut start_col = None;
+    let mut segment = String::new();
+    for grapheme in Graphemes::new(composing) {
+        let width = unicode_column_width(grapheme, None).max(1);
+        // Wrap to the next row when the grapheme doesn't fit.
+        // A grapheme wider than the pane is emitted at col 0 anyway,
+        // as there is no way to make it fit.
+        if col + width > cols && col > 0 {
+            if cur_row >= row {
+                break;
+            }
+            cur_row += 1;
+            col = 0;
+        }
+        if cur_row == row {
+            if start_col.is_none() {
+                start_col = Some(col);
+            }
+            segment.push_str(grapheme);
+        }
+        col += width;
+    }
+    if segment.is_empty() {
+        None
+    } else {
+        Some((start_col?, segment))
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::composition_for_row;
+
+    #[test]
+    fn composition_fits_on_cursor_row() {
+        assert_eq!(
+            composition_for_row("あいう", 10, 5, 5, 80),
+            Some((10, "あいう".to_string()))
+        );
+        assert_eq!(composition_for_row("あいう", 10, 5, 6, 80), None);
+        // Rows above the cursor never hold composition text
+        assert_eq!(composition_for_row("あいう", 10, 5, 4, 80), None);
+    }
+
+    #[test]
+    fn composition_wraps_at_pane_edge() {
+        // "あ" occupies the last two cells; the rest flows to the next row
+        assert_eq!(
+            composition_for_row("あいう", 78, 5, 5, 80),
+            Some((78, "あ".to_string()))
+        );
+        assert_eq!(
+            composition_for_row("あいう", 78, 5, 6, 80),
+            Some((0, "いう".to_string()))
+        );
+        assert_eq!(composition_for_row("あいう", 78, 5, 7, 80), None);
+    }
+
+    #[test]
+    fn wide_grapheme_moves_to_next_row_when_split() {
+        // Only one cell remains on the cursor row: a wide grapheme
+        // must not straddle the pane edge
+        assert_eq!(composition_for_row("あ", 79, 5, 5, 80), None);
+        assert_eq!(
+            composition_for_row("あ", 79, 5, 6, 80),
+            Some((0, "あ".to_string()))
+        );
+        // ...but a narrow grapheme still fits there
+        assert_eq!(
+            composition_for_row("aあ", 79, 5, 5, 80),
+            Some((79, "a".to_string()))
+        );
+        assert_eq!(
+            composition_for_row("aあ", 79, 5, 6, 80),
+            Some((0, "あ".to_string()))
+        );
+    }
+
+    #[test]
+    fn long_composition_spans_multiple_rows() {
+        let text = "0123456789".repeat(2);
+        assert_eq!(
+            composition_for_row(&text, 2, 0, 0, 8),
+            Some((2, "012345".to_string()))
+        );
+        assert_eq!(
+            composition_for_row(&text, 2, 0, 1, 8),
+            Some((0, "67890123".to_string()))
+        );
+        assert_eq!(
+            composition_for_row(&text, 2, 0, 2, 8),
+            Some((0, "456789".to_string()))
+        );
+        assert_eq!(composition_for_row(&text, 2, 0, 3, 8), None);
+    }
+
+    #[test]
+    fn cursor_at_right_edge() {
+        assert_eq!(composition_for_row("x", 80, 5, 5, 80), None);
+        assert_eq!(
+            composition_for_row("x", 80, 5, 6, 80),
+            Some((0, "x".to_string()))
+        );
+    }
+
+    #[test]
+    fn degenerate_inputs() {
+        assert_eq!(composition_for_row("", 0, 0, 0, 80), None);
+        assert_eq!(composition_for_row("x", 0, 0, 0, 0), None);
+    }
 }
 
 pub struct LineToElementShapeItem {
