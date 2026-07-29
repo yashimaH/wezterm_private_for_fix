@@ -1,8 +1,8 @@
 use crate::quad::{QuadTrait, TripleLayerQuadAllocator, TripleLayerQuadAllocatorTrait};
 use crate::termwindow::render::{
-    resolve_fg_color_attr, same_hyperlink, update_next_frame_time, ClusterStyleCache,
-    ComputeCellFgBgParams, ComputeCellFgBgResult, LineToElementParams, LineToElementShape,
-    RenderScreenLineParams, RenderScreenLineResult,
+    composition_for_row, resolve_fg_color_attr, same_hyperlink, update_next_frame_time,
+    ClusterStyleCache, ComputeCellFgBgParams, ComputeCellFgBgResult, LineToElementParams,
+    LineToElementShape, RenderScreenLineParams, RenderScreenLineResult,
 };
 use crate::termwindow::LineToElementShapeItem;
 use ::window::DeadKeyStatus;
@@ -66,19 +66,20 @@ impl crate::TermWindow {
 
         let start = Instant::now();
 
-        let cursor_idx = if params.pane.is_some()
-            && params.is_active
-            && params.stable_line_idx == Some(params.cursor.y)
-        {
-            Some(params.cursor.x)
-        } else {
-            None
-        };
-
-        // Referencing the text being composed, but only if it belongs to this pane
-        let composing = if cursor_idx.is_some() {
+        // Referencing the text being composed, but only if it belongs to this
+        // pane. The composition is wrapped at the pane width, so multiple rows
+        // may each hold a portion of it.
+        let composing = if params.pane.is_some() && params.is_active {
             if let DeadKeyStatus::Composing(composing) = &self.dead_key_status {
-                Some(composing)
+                params.stable_line_idx.and_then(|row| {
+                    composition_for_row(
+                        composing,
+                        params.cursor.x,
+                        params.cursor.y,
+                        row,
+                        num_cols,
+                    )
+                })
             } else {
                 None
             }
@@ -86,13 +87,15 @@ impl crate::TermWindow {
             None
         };
 
+        let mut composition_start = 0;
         let mut composition_width = 0;
 
         let (_bidi_enabled, bidi_direction) = params.line.bidi_info();
         let direction = bidi_direction.direction();
 
         // Do we need to shape immediately, or can we use the pre-shaped data?
-        if let Some(composing) = composing {
+        if let Some((start_col, composing)) = &composing {
+            composition_start = *start_col;
             composition_width = unicode_column_width(composing, None);
         }
 
@@ -103,7 +106,7 @@ impl crate::TermWindow {
         };
 
         let cursor_range = if composition_width > 0 {
-            params.cursor.x..params.cursor.x + composition_width
+            composition_start..composition_start + composition_width
         } else if params.stable_line_idx == Some(params.cursor.y) {
             params.cursor.x..params.cursor.x + cursor_cell.as_ref().map(|c| c.width()).unwrap_or(1)
         } else {
@@ -346,7 +349,7 @@ impl crate::TermWindow {
             });
             let pos_x = (self.dimensions.pixel_width as f32 / -2.)
                 + params.left_pixel_x
-                + (phys(params.cursor.x, num_cols, direction) as f32 * cell_width);
+                + (phys(cursor_range.start, num_cols, direction) as f32 * cell_width);
 
             if let Some(shape) = cursor_shape {
                 let cursor_layer = match shape {
