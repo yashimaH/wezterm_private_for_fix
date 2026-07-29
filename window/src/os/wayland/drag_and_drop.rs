@@ -1,4 +1,5 @@
 use crate::wayland::read_pipe_with_timeout;
+use crate::ConnectionOps;
 use smithay_client_toolkit as toolkit;
 use std::path::PathBuf;
 use toolkit::data_device_manager::data_offer::DragOffer;
@@ -8,38 +9,35 @@ use url::Url;
 use super::data_device::URI_MIME_TYPE;
 use super::WaylandConnection;
 
-/// Represents an active drag-and-drop session for a window.
-///
-/// Created when a data device enter event occurs, and holds the drag offer
-/// until the drop is performed or the session is cancelled.
-pub struct DragAndDropSession {
-    pub window_id: usize,
-    pub drag_offer: DragOffer,
+#[derive(Default)]
+pub struct DragAndDrop {
+    pub(super) offer: Option<SurfaceAndOffer>,
 }
 
-/// A window ID paired with a read pipe for receiving drag-and-drop'ed content data.
-pub struct WindowAndPipe {
-    pub window_id: usize,
-    pub read: ReadPipe,
+pub(super) struct SurfaceAndOffer {
+    pub(super) window_id: usize,
+    pub(super) offer: DragOffer,
 }
 
-impl DragAndDropSession {
-    /// Takes the current drag offer and initiates a receive into a pipe,
-    /// returning that window and pipe descriptor.
-    pub fn create_pipe_for_drop(&mut self) -> Option<WindowAndPipe> {
-        let read = self
-            .drag_offer
+pub(super) struct SurfaceAndPipe {
+    pub(super) window_id: usize,
+    pub(super) read: ReadPipe,
+}
+
+impl DragAndDrop {
+    /// Takes the current offer, if any, and initiates a receive into a pipe,
+    /// returning that surface and pipe descriptor.
+    pub(super) fn create_pipe_for_drop(&mut self) -> Option<SurfaceAndPipe> {
+        let SurfaceAndOffer { window_id, offer } = self.offer.take()?;
+        let read = offer
             .receive(URI_MIME_TYPE.to_string())
             .map_err(|err| log::error!("Unable to receive data: {:#}", err))
             .ok()?;
-        self.drag_offer.finish();
-        Some(WindowAndPipe {
-            window_id: self.window_id,
-            read,
-        })
+        offer.finish();
+        Some(SurfaceAndPipe { window_id, read })
     }
 
-    pub fn read_paths_from_pipe(read: ReadPipe) -> Option<Vec<PathBuf>> {
+    pub(super) fn read_paths_from_pipe(read: ReadPipe) -> Option<Vec<PathBuf>> {
         read_pipe_with_timeout(read)
             .map_err(|err| {
                 log::error!("Error while reading pipe from drop result: {:#}", err);
@@ -67,10 +65,14 @@ impl DragAndDropSession {
             .into()
     }
 
-    pub fn dispatch_dropped_files(window_id: usize, paths: Vec<PathBuf>) {
-        WaylandConnection::with_window_inner(window_id, move |inner| {
-            inner.dispatch_dropped_files(paths);
-            Ok(())
-        });
+    pub(super) fn dispatch_dropped_files(window_id: usize, paths: Vec<PathBuf>) {
+        promise::spawn::spawn_into_main_thread(async move {
+            let conn = WaylandConnection::get().unwrap().wayland();
+            if let Some(handle) = conn.window_by_id(window_id) {
+                let mut inner = handle.borrow_mut();
+                inner.dispatch_dropped_files(paths);
+            }
+        })
+        .detach();
     }
 }

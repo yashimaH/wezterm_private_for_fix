@@ -6,7 +6,6 @@ mod c0;
 use bitflags::bitflags;
 mod c1;
 mod csi;
-mod image;
 // mod selection; FIXME: port to render layer
 use crate::color::ColorPalette;
 use k9::assert_equal as assert_eq;
@@ -54,10 +53,6 @@ impl TerminalConfiguration for TestTermConfig {
 
     fn color_palette(&self) -> ColorPalette {
         ColorPalette::default()
-    }
-
-    fn enable_kitty_graphics(&self) -> bool {
-        true
     }
 }
 

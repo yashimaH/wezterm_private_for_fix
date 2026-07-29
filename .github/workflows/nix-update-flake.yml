@@ -1,4 +1,4 @@
-name: Nix / Update flake.lock
+name: update-flake-lock
 on:
   workflow_dispatch:
   schedule:
@@ -11,26 +11,21 @@ jobs:
     if: github.repository == 'wezterm/wezterm'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
-
+        uses: actions/checkout@v3
       - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@v3.21.1
-
+        uses: DeterminateSystems/nix-installer-action@main
       - name: Cache build artifacts
-        uses: DeterminateSystems/flakehub-cache-action@v3
-
+        uses: DeterminateSystems/flakehub-cache-action@main
       - name: Check flake
-        # note: waiting for a release with node24 upgrade
-        # see: https://github.com/DeterminateSystems/flake-checker-action/pull/110
         uses: DeterminateSystems/flake-checker-action@main
-
       - name: Update flake.lock
-        uses: DeterminateSystems/update-flake-lock@v28
+        uses: DeterminateSystems/update-flake-lock@main
         with:
           token: "${{ secrets.FLAKE_LOCK_GH_PAT }}"
-          pr-title: 'nix: Update flake.lock'
-          pr-labels: |
+          pr-title: 'Update flake.lock' # Title of PR to be created
+          pr-labels: | # Labels to be set on the PR
             dependencies
             automated
+          pr-assignees: happenslol,gabyx,emiller88
           pr-reviewers: bew
           path-to-flake-dir: 'nix/'
