@@ -1,4 +1,12 @@
 //! Implements zwp_text_input_v3 for handling IME
+// [ime-memo] Wayland の IME 実装。zwp_text_input_v3 プロトコルで
+// コンポジタ(≒fcitx5 等の IME フレームワーク)と会話する。
+//   - PreeditString イベント → pending_state.pre_edit に蓄積
+//   - CommitString イベント → pending_state.commit に蓄積
+//   - Done イベントで確定: pre_edit は AdviseDeadKeyStatus(Composing) へ、
+//     commit は KeyCode::composed の KeyEvent へ変換して GUI 層に流す。
+// Windows(IMM32)/macOS(NSTextInputClient)/X11(xkb compose) と最終的に
+// 同じ 2 種類のイベント(未確定通知/確定 KeyEvent)に正規化される点が肝。
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::sync::Mutex;

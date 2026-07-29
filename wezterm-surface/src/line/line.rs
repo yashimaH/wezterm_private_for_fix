@@ -748,6 +748,14 @@ impl Line {
     /// of cells to avoid partial rendering concerns.
     /// Similarly, when we assign a cell, we need to blank out those
     /// occluded successor cells.
+    // [ime-memo] マルチバイト(全角)文字のセル表現の要点:
+    //   - 全角文字は「幅 2 の Cell 1 個」として先頭桁に格納され、直後の桁は
+    //     その文字に「隠された(occluded)」状態になる。
+    //   - 全角セルの後半桁に書き込むと、前半桁ごと空白化される
+    //     (invalidate_grapheme_at_or_before)。半分だけ残った全角文字を
+    //     描画しないための処置。
+    // 桁(x座標)とセル index は同じだが「1 文字 = 1 桁」ではない点が
+    // マルチバイト文字がらみの座標バグの典型的な原因になる。
     pub fn set_cell(&mut self, idx: usize, cell: Cell, seqno: SequenceNo) {
         self.set_cell_impl(idx, cell, false, seqno);
     }
@@ -867,6 +875,11 @@ impl Line {
 
     /// Place text starting at the specified column index.
     /// Each grapheme of the text run has the same attributes.
+    // [ime-memo] IME 未確定文字列の overlay 描画で使われるヘルパー
+    // (wezterm-gui/src/termwindow/render/screen_line.rs から呼ばれる)。
+    // grapheme 単位で start_idx から順にセルへ上書きし、全角文字のときは
+    // width-1 を加算して次の grapheme の開始桁を補正する。
+    // start_idx が行末を超えても set_cell が行を自動延長するためパニックはしない。
     pub fn overlay_text_with_attribute(
         &mut self,
         mut start_idx: usize,

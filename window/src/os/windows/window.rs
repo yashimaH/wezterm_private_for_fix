@@ -666,6 +666,12 @@ impl WindowInner {
         }
     }
 
+    // [ime-memo] GUI 層からカーソル位置(ピクセル矩形)を受け取る Windows 実装。
+    // ime_preedit_rendering の設定により通知先が変わる:
+    //   Builtin (既定): 未確定文字列は wezterm 自身が描画するので、
+    //                   IME には候補ウィンドウの位置だけを教える。
+    //   System:         未確定文字列も IME(システム)に描かせるので、
+    //                   変換ウィンドウ(composition window)の位置を教える。
     fn set_text_cursor_position(&mut self, cursor: Rect) {
         self.set_ime_window_position(cursor);
     }
@@ -1977,6 +1983,11 @@ unsafe fn mouse_wheel(hwnd: HWND, msg: UINT, wparam: WPARAM, lparam: LPARAM) -> 
 }
 
 /// Helper for managing the IME Manager
+// [ime-memo] Win32 IMM32 API のコンテキスト(HIMC)の RAII ラッパー。
+// Windows の IME 連携はすべてこの構造体経由:
+//   - 候補/変換ウィンドウの位置指定 (ImmSetCandidateWindow / ImmSetCompositionWindow)
+//   - 未確定・確定文字列の取得 (ImmGetCompositionStringW)
+// ※ TSF(Text Services Framework) は使っておらず、古典的な IMM32 のみ。
 struct ImmContext {
     hwnd: HWND,
     imc: HIMC,
@@ -1993,6 +2004,11 @@ impl ImmContext {
     }
 
     /// Set the position of the IME candidate window relative to the cursor.
+    // [ime-memo] 変換候補一覧ウィンドウの位置指定。CFS_EXCLUDE を使い
+    // 「カーソル矩形 (rcArea) を避けて表示しろ」と IME に指示する。
+    // wezterm 自前描画の未確定文字列を候補ウィンドウが隠さないようにするため。
+    // カーソル位置がずれるバグの場合、渡ってくる cursor(update_text_cursor() 起点)が
+    // まず疑わしく、この関数自体は座標をそのまま流すだけ。
     pub fn set_candidate_window_position(&self, cursor: Rect) {
         let mut cf = CANDIDATEFORM {
             dwIndex: 0,
@@ -2032,6 +2048,9 @@ impl ImmContext {
         }
     }
 
+    // [ime-memo] IME から未確定文字列(GCS_COMPSTR)または確定文字列(GCS_RESULTSTR)を
+    // 取り出す。中身は UTF-16 なので OsString 経由で Rust の String(UTF-8) に変換。
+    // サロゲートペア(絵文字等)が不正な場合は Err になる。
     pub fn get_str(&self, which: DWORD) -> Result<String, OsString> {
         // This returns a size in bytes even though it is for a buffer of u16!
         let byte_size =
@@ -2062,6 +2081,10 @@ impl Drop for ImmContext {
     }
 }
 
+// [ime-memo] WM_IME_SETCONTEXT ハンドラ。Builtin 描画モードのときは
+// ISC_SHOWUICOMPOSITIONWINDOW フラグを落として DefWindowProc に渡し、
+// 「システム標準の変換ウィンドウを出すな(自前で描くから)」と宣言する。
+// System 描画モードなら None を返してデフォルト処理(=システム描画)に任せる。
 unsafe fn ime_set_context(
     hwnd: HWND,
     msg: UINT,
@@ -2086,6 +2109,9 @@ unsafe fn ime_set_context(
     Some(result)
 }
 
+// [ime-memo] WM_IME_ENDCOMPOSITION ハンドラ。変換セッションの終了
+// (確定またはキャンセル)で呼ばれ、GUI 層へ DeadKeyStatus::None を通知して
+// overlay 表示中の未確定文字列を消させる。
 unsafe fn ime_end_composition(
     hwnd: HWND,
     _msg: UINT,
@@ -2106,6 +2132,15 @@ unsafe fn ime_end_composition(
     Some(1)
 }
 
+// [ime-memo] WM_IME_COMPOSITION ハンドラ。IME 入力の本丸。
+// lparam のフラグで状態を判別する:
+//   - lparam == 0                → 変換キャンセル。DeadKeyStatus::None を通知。
+//   - GCS_RESULTSTR が立っていない → まだ未確定。GCS_COMPSTR で未確定文字列を取り、
+//                                  AdviseDeadKeyStatus(Composing(...)) を GUI 層へ。
+//                                  Some(1) を返してシステム描画を抑止する。
+//   - GCS_RESULTSTR が立っている  → 確定。確定文字列を KeyCode::Composed(s) の
+//                                  KeyEvent として dispatch し、状態を None に戻す。
+//                                  この KeyEvent が keyevent.rs 経由で PTY に書かれる。
 unsafe fn ime_composition(
     hwnd: HWND,
     _msg: UINT,

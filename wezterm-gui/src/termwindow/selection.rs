@@ -63,6 +63,16 @@ impl super::TermWindow {
     }
 
     /// Returns the selection text only
+    // [ime-memo] 選択範囲(セル桁単位)からコピー文字列を組み立てる。
+    // マルチバイト文字との関係:
+    //   - 実体の取り出しは columns_as_str(wezterm-surface の Line)。
+    //     visible_cells() は全角文字を「先頭桁の 1 セル」としてだけ列挙する
+    //     ので、範囲の始端が全角文字の後半桁を指すとその文字は含まれず、
+    //     終端が前半桁と後半桁の間を指すと丸ごと含まれる、という
+    //     セル境界≠文字境界のずれがコピー結果に直結する。
+    //   - 選択座標(SelectionCoordinate.x)は常に「桁」であって「文字数」では
+    //     ない。マウス座標→桁の変換時に全角を考慮しないと半文字ずれる
+    //     (fix-multi-byte-chara-selection ブランチが扱っている領域)。
     pub fn selection_text(&self, pane: &Arc<dyn Pane>) -> String {
         let mut s = String::new();
         let rectangular = self.selection(pane.pane_id()).rectangular;
@@ -116,6 +126,12 @@ impl super::TermWindow {
         self.window.as_ref().unwrap().invalidate();
     }
 
+    // [ime-memo] マウスドラッグで選択範囲を伸縮する処理。x はすでに
+    // 「セル桁」に変換済み(mouseevent.rs で ピクセル÷セル幅、さらに
+    // セル中央 50% 補正が入った値)で、ここでは全角/半角の区別は一切
+    // 見ていない。全角文字の上では 1 文字が 2 桁を占めるため、桁単位の
+    // saturating_sub(1) 補正が文字単位で見ると半文字ズレになるケースが
+    // マルチバイト選択バグの出どころ。
     pub fn extend_selection_at_mouse_cursor(&mut self, mode: SelectionMode, pane: &Arc<dyn Pane>) {
         self.selection(pane.pane_id()).seqno = pane.get_current_seqno();
         let (position, y) = match self.pane_state(pane.pane_id()).mouse_terminal_coords {

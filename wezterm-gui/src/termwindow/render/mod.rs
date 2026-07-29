@@ -59,6 +59,13 @@ pub struct LineQuadCacheKey {
     pub shape_generation: usize,
     pub quad_generation: usize,
     /// Only set if cursor.y == stable_row
+    // [ime-memo] 行単位の描画キャッシュ(quad)のキー。IME 未確定文字列は
+    // 「カーソルのある行」にしか表示されない前提なので、composing が
+    // Some になるのはカーソル行のみ。未確定文字列が変わるとキーが変わり
+    // キャッシュミス → 再構築される仕組み。
+    // 未確定文字列がカーソル行からはみ出して次行に折り返すような表示を
+    // したければ、折り返し先の行のキーにも composing 情報を含めないと
+    // その行が再描画されない点に注意(fix ブランチではここを拡張した)。
     pub composing: Option<String>,
     pub selection: Range<usize>,
     pub shape_hash: [u8; 16],
@@ -95,6 +102,10 @@ pub struct LineToElementParams<'a> {
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub struct LineToEleShapeCacheKey {
     pub shape_hash: [u8; 16],
+    // [ime-memo] 文字シェイピング(グリフ配置)キャッシュのキー側。
+    // (カーソルの x 座標, 未確定文字列) のペア。screen_line.rs の
+    // build_line_element_shape() がこれを見て、行のセル内容の上に
+    // 未確定文字列を overlay してからシェイプする。
     pub composing: Option<(usize, String)>,
     pub shape_generation: usize,
 }

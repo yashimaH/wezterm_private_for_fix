@@ -146,6 +146,10 @@ pub enum WindowKeyEvent {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+// [ime-memo] IME/デッドキーの「未確定状態」を表す型。名前は DeadKey だが、
+// 実際には IME の未確定文字列(preedit/composition)もこの型で表現される。
+// Composing の String が「あいう」のような未確定文字列そのもので、
+// GUI 層(wezterm-gui/src/termwindow)はこれをカーソル位置に overlay 描画する。
 pub enum DeadKeyStatus {
     /// Not in a dead key processing hold
     None,
@@ -182,6 +186,10 @@ pub enum WindowEvent {
     /// Called when the window gains/loses focus
     FocusChanged(bool),
 
+    // [ime-memo] OS 層(windows/macos/x11/wayland の各 window 実装)から GUI 層へ
+    // IME 未確定状態の変化を通知するイベント。未確定文字列が更新されるたびに
+    // Composing(文字列) が飛び、確定/キャンセル時に None が飛ぶ。
+    // 受け手は wezterm-gui/src/termwindow/mod.rs の dispatch_window_event()。
     AdviseDeadKeyStatus(DeadKeyStatus),
 
     /// Called to handle a raw key event, prior to any dead key,
@@ -311,6 +319,10 @@ pub trait WindowOps {
     /// inform the windowing system of the current textual
     /// cursor input location.  This is used primarily for
     /// the platform specific input method editor
+    // [ime-memo] GUI 層 → OS 層の逆方向通知。ターミナルのカーソル位置(ピクセル矩形)を
+    // OS に伝え、IME の候補ウィンドウ/変換ウィンドウの表示位置の基準にする。
+    // 呼び出し元は termwindow/mod.rs の update_text_cursor()。
+    // ここの Rect がずれていると「IME 候補ウィンドウが変な場所に出る」系の不具合になる。
     fn set_text_cursor_position(&self, _cursor: Rect) {}
 
     /// Initiate textual transfer from the clipboard

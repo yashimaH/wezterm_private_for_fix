@@ -92,6 +92,11 @@ impl crate::TermWindow {
         let direction = bidi_direction.direction();
 
         // Do we need to shape immediately, or can we use the pre-shaped data?
+        // [ime-memo] 未確定文字列の表示幅をセル数で算出。全角文字は 2、半角は 1 として
+        // 数えられる(unicode_column_width → wezterm-cell の grapheme_column_width)。
+        // 例:「あいう」→ 6 セル。この幅はこの後の cursor_range 計算に使われるが、
+        // 行末を超える(cursor.x + width > ペイン幅)ケースのクランプはここでは
+        // 行われないことに注意。
         if let Some(composing) = composing {
             composition_width = unicode_column_width(composing, None);
         }
@@ -102,6 +107,12 @@ impl crate::TermWindow {
             None
         };
 
+        // [ime-memo] カーソルとして強調表示するセル範囲。
+        //   - IME 変換中: カーソル位置から未確定文字列の幅ぶん(ハイライト帯になる)
+        //   - 通常時:     カーソル下のセル幅ぶん(全角文字の上なら 2 セル幅の
+        //                 ブロックカーソルになる。cursor_cell.width() がその判定)
+        // 変換中の範囲は行末を越えてもそのまま伸びる計算なので、行末近くでは
+        // 画面外にはみ出た分が描かれない(折り返しはしない)。
         let cursor_range = if composition_width > 0 {
             params.cursor.x..params.cursor.x + composition_width
         } else if params.stable_line_idx == Some(params.cursor.y) {
@@ -727,6 +738,13 @@ impl crate::TermWindow {
         } else {
             None
         };
+        // [ime-memo] IME 未確定文字列の overlay 実体。行データを clone して、
+        // カーソル桁 (cursor_x) から未確定文字列を「上書き」した一時的な行を作り、
+        // それをクラスタリング(シェイプ対象化)する。画面のグリッド自体は変更しない。
+        // overlay_text_with_attribute (wezterm-surface の Line) は grapheme 単位で
+        // set_cell していくため全角文字は 2 セル消費する。行幅を超えた分は
+        // Line 自体は伸びる(set_cell が末尾を自動で埋める)が、描画される
+        // のはペイン幅までなので画面上は見切れ、次の行への折り返しはない。
         let cell_clusters = if let Some((cursor_x, composing)) =
             params.shape_key.as_ref().and_then(|k| k.composing.as_ref())
         {

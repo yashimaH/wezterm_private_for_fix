@@ -381,6 +381,13 @@ impl crate::TermWindow {
                     // Constrain to the pane width!
                     let selrange = selrange.start..selrange.end.min(self.dims.cols);
 
+                    // [ime-memo] 行ごとの描画準備。IME 未確定文字列(composing)は
+                    // 「カーソルの y と一致する行」かつ「アクティブペイン」のときだけ
+                    // Some になる。この条件が overlay 表示をカーソル行 1 行に限定して
+                    // いるため、未確定文字列が行幅を超える場合でも折り返し先の行には
+                    // 何も渡らない(=行末近くで日本語入力すると未確定文字列が
+                    // 見切れる問題の根本原因。fix ブランチは行ごとのセグメント分割で
+                    // ここを拡張した)。
                     let (cursor, composing, password_input) = if self.cursor.y == stable_row {
                         (
                             Some(CursorProperties {
@@ -470,6 +477,9 @@ impl crate::TermWindow {
                     let mut buf = HeapQuadAllocator::default();
                     let next_due = self.term_window.has_animation.borrow_mut().take();
 
+                    // [ime-memo] シェイプキャッシュキー側にも composing を入れる。
+                    // こちらは (カーソル x, 未確定文字列) のタプルで、screen_line.rs が
+                    // overlay 開始桁として cursor.x をそのまま使う。
                     let shape_key = LineToEleShapeCacheKey {
                         shape_hash,
                         shape_generation: quad_key.shape_generation,

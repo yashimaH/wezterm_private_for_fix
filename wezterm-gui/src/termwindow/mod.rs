@@ -385,6 +385,9 @@ pub struct TermWindow {
     input_map: InputMap,
     /// If is_some, the LEADER modifier is active until the specified instant.
     leader_is_down: Option<std::time::Instant>,
+    // [ime-memo] IME 未確定文字列の現在値。OS 層からの AdviseDeadKeyStatus で更新され、
+    // 描画時(render/pane.rs, render/screen_line.rs)に参照されて
+    // カーソル行の上に未確定文字列が overlay 描画される。
     dead_key_status: DeadKeyStatus,
     key_table_state: KeyTableState,
     show_tab_bar: bool,
@@ -985,6 +988,9 @@ impl TermWindow {
                 self.key_event_impl(event, window);
                 Ok(true)
             }
+            // [ime-memo] IME 未確定状態の受信点。状態を保持して再描画を要求するだけで、
+            // 実際の overlay 描画は次フレームの描画パスで行われる。
+            // ここで PTY には何も書かない(確定文字列は KeyEvent 側で届く)。
             WindowEvent::AdviseDeadKeyStatus(status) => {
                 if self.config.debug_key_events {
                     log::info!("DeadKeyStatus now: {:?}", status);
@@ -2109,6 +2115,15 @@ impl TermWindow {
         }
     }
 
+    // [ime-memo] ターミナルのカーソル位置をピクセル矩形に変換して OS へ通知する
+    // (set_text_cursor_position → Windows なら IMM32 の候補ウィンドウ位置になる)。
+    // 計算: (セル座標 + ペインの表示オフセット) × セルサイズ + タブバー高さ + padding。
+    // 注意点:
+    //   - cursor.x/y は「確定済み画面上のカーソル」であり、IME 未確定文字列の
+    //     長さ・折り返しは一切考慮されない。未確定文字列が長くて次行に折り返す
+    //     ケースでは、実際に文字が見えている位置と IME ウィンドウ位置がずれ得る
+    //     (=fix-cursor-position-for-ime-newline で扱った問題の関連箇所)。
+    //   - 呼ばれるのはアクティブペインの描画時のみ。
     fn update_text_cursor(&mut self, pos: &PositionedPane) {
         if let Some(win) = self.window.as_ref() {
             let cursor = pos.pane.get_cursor_position();

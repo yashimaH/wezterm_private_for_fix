@@ -902,6 +902,11 @@ pub fn is_white_space_grapheme(g: &str) -> bool {
 /// of graphemes.
 /// Calls through to `grapheme_column_width` for each grapheme
 /// and sums up the length.
+// [ime-memo] 文字列全体の表示セル数を返す(全角=2、半角=1 の合計)。
+// IME 未確定文字列の表示幅計算(render/screen_line.rs)はこれを使う。
+// version=None のときは wezterm が知る最新の Unicode 版で判定されるため、
+// ターミナル本体(unicode_version 設定でセルごとに保持)と判定がずれる
+// 可能性が理論上ある(絵文字・曖昧幅文字などで 1/2 が割れるケース)。
 pub fn unicode_column_width(s: &str, version: Option<&UnicodeVersion>) -> usize {
     Graphemes::new(s)
         .map(|g| grapheme_column_width(g, version))

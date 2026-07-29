@@ -114,6 +114,17 @@ impl<'a> Performer<'a> {
         }
     }
 
+    // [ime-memo] PTY から届いた印字文字列を画面グリッドへ反映する中核。
+    // IME で確定した日本語文字列も、シェルのエコーバックとしてここを通る。
+    // マルチバイト処理の流れ:
+    //   1. 必要なら NFC 正規化(結合文字の合成)
+    //   2. grapheme(書記素クラスタ)単位に分割 — char 単位ではない
+    //   3. grapheme_column_width で表示幅を判定(全角=2, 半角=1, 幅0は特別扱い)
+    //   4. wrap_next が立っていれば行を折り返してから set_cell_grapheme で格納
+    // 折り返しは deferred wrap 方式: 「x + print_width >= 右マージン」で
+    // wrap_next を立てるだけで、実際の改行は次の文字の印字時に行う。
+    // そのため行末残り 1 桁の位置に全角文字が来た場合も、まずその桁に
+    // 幅 2 のセルとして格納される(次行へ送る先行処理はない)点に注意。
     fn flush_print(&mut self) {
         if self.print.is_empty() {
             return;

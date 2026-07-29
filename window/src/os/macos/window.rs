@@ -1571,6 +1571,11 @@ struct Inner {
     /// Whether we're in live resize
     live_resizing: bool,
 
+    // [ime-memo] macOS の IME 未確定文字列。NSTextInputClient プロトコルの
+    // set_marked_text_selected_range_replacement_range() で更新され、
+    // insert_text_replacement_range()(確定)や unmark_text() でクリアされる。
+    // ここから DeadKeyStatus::Composing に変換されて GUI 層へ渡る。
+    // 確定文字列は KeyCode::Composed の KeyEvent として dispatch される。
     ime_text: String,
 }
 

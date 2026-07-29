@@ -85,6 +85,12 @@ impl super::TermWindow {
             .max(0)
             / self.render_metrics.cell_size.height) as i64;
 
+        // [ime-memo] マウスのピクセル x → セル桁の変換点。選択(セル選択)時は
+        // round() するので「セル幅の 50% を越えたら隣のセル扱い」になる。
+        // ここで得た桁は半角セル基準であり、全角文字(2 桁占有)の存在は
+        // 考慮しない。以降の選択処理(selection.rs)もずっと桁単位のまま
+        // 進むため、全角文字上のドラッグでは文字境界と桁境界の食い違いが
+        // そのまま選択結果に出る。
         let x = (event
             .coords
             .x

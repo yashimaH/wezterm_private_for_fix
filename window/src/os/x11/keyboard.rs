@@ -317,6 +317,10 @@ impl KeyboardWithFallback {
             let fallback_feed = self.fallback.compose_feed(xcode, fallback_xsym);
             let selected_feed = self.selected.compose_feed(xcode, xsym);
 
+            // [ime-memo] X11/Wayland 共通の xkb compose(デッドキー合成)処理。
+            // 日本語 IME(ibus/fcitx 等)の preedit とは別系統だが、GUI 層へは
+            // 同じ AdviseDeadKeyStatus(Composing/None) イベントに合流する。
+            // Composing = 合成途中(表示のみ)、Composed = 確定文字列を KeyCode に。
             match selected_feed {
                 FeedResult::Composing(composition) => {
                     log::trace!(

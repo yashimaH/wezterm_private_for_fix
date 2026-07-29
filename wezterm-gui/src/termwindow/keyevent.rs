@@ -720,6 +720,12 @@ impl super::TermWindow {
                     }
                 }
             }
+            // [ime-memo] IME 確定文字列の最終到達点。OS 層が WM_IME_COMPOSITION
+            // (GCS_RESULTSTR) 等から作った KeyCode::Composed(String) がここに来て、
+            // UTF-8 バイト列としてそのまま PTY へ書き込まれる。
+            // シェル側がエコーバックして初めて画面のグリッド(term/ の Screen)に乗る。
+            // つまり「未確定=GUI が overlay 描画」「確定後=通常の端末出力」という
+            // 2 つの描画経路があり、切り替わり瞬間の見え方の差が IME バグの温床。
             Key::Composed(s) => {
                 if !window_key.key_is_down {
                     return;
